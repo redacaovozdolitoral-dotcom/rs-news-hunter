@@ -10,13 +10,10 @@ import random
 # --- GRUPO 1: SITES COM RSS (PREFERÊNCIA TOTAL - LEVE) ---
 # Coloque aqui todos que tem /feed/. O processamento é instantâneo.
 RSS_FEEDS = {
-    "https://www.f1mania.net/feed/": "Fórmula 1",
-    "https://www.autoracing.com.br/feed/": "Fórmula 1",
     "https://www.grandepremio.com.br/feed/": "Fórmula 1",
     "https://nautica.com.br/feed/": "Náutica",
-    "https://perfilnautico.com.br/feed/": "Náutica",
     "https://www.tuasaude.com/feed/": "Saúde",
-    "https://ge.globo.com/rss/ge/futebol/times/palmeiras.xml": "Esporte", # Exemplo RSS GE
+    "https://ge.globo.com/rss/ge/futebol/xml": "Esporte", # Exemplo RSS GE
     "https://www.gazetaesportiva.com/feed/": "Esporte",
     "https://www.tamoiosnews.com.br/feed/": "Regional",
     "https://novaimprensa.com/feed/": "Regional",
