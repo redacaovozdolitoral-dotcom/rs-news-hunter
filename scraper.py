@@ -5,57 +5,56 @@ from newspaper import Article, Config
 from datetime import datetime
 import time
 import os
-from googlenewsdecoder import gnewsdecoder
 
-# --- CONFIGURAÇÕES ---
-KEYWORDS_STRING = os.environ.get("KEYWORDS", "Litoral Norte SP,Ilhabela,São Sebastião")
-KEYWORDS = [k.strip() for k in KEYWORDS_STRING.split(",")]
+# --- LISTA DE SITES ALVO (FEEDS DIRETOS) ---
+# Adicione ou remova sites aqui. A maioria dos sites aceita "/feed" no final.
+DEFAULT_FEEDS = [
+    "https://g1.globo.com/dynamo/sp/vale-do-paraiba-regiao/rss2.xml", # G1 Vale/Litoral
+    "https://www.tamoiosnews.com.br/feed/", # Tamoios News
+    "https://radarlitoral.com.br/feed/",    # Radar Litoral
+    "https://novaimprensa.com/feed/",       # Nova Imprensa
+    "https://jornalilhabella.com.br/feed/"  # Jornal Ilhabela (se existir, se não, removemos)
+]
+
+# Pega feeds extras das variáveis de ambiente se houver
+ENV_FEEDS = os.environ.get("TARGET_FEEDS", "")
+if ENV_FEEDS:
+    FEEDS = ENV_FEEDS.split(",")
+else:
+    FEEDS = DEFAULT_FEEDS
 
 HOSTINGER_API = os.environ.get("HOSTINGER_API", "https://darkseagreen-nightingale-543295.hostingersite.com/automacao-news/index.php")
 API_TOKEN = os.environ.get("API_TOKEN", "R1c4rd0_Au70m4c40_2026")
 
-# Config do Newspaper (Falso Navegador)
+# Configuração do "Navegador"
 user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 config = Config()
 config.browser_user_agent = user_agent
 config.request_timeout = 20
 
-def buscar_noticias():
+def buscar_noticias_direto():
     lista_envio = []
-    print(f"--- Iniciando Busca: {datetime.now()} ---")
+    print(f"--- Iniciando Busca Direta: {datetime.now()} ---")
     
-    for kw in KEYWORDS:
-        print(f"🔍 Buscando por: {kw}")
-        encoded_kw = kw.replace(" ", "%20")
-        rss_url = f"https://news.google.com/rss/search?q={encoded_kw}&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+    for rss_url in FEEDS:
+        print(f"📡 Lendo Feed: {rss_url}")
         
         try:
             feed = feedparser.parse(rss_url)
+            if not feed.entries:
+                print("   ⚠️ Feed vazio ou erro de leitura.")
+                continue
         except Exception as e:
-            print(f"Erro ao baixar RSS: {e}")
+            print(f"   ⚠️ Erro ao abrir feed: {e}")
             continue
         
-        # Pega as 3 primeiras
+        # Pega as 3 notícias mais recentes de cada site
         for entry in feed.entries[:3]:
             try:
-                print(f"   > Link Encontrado: {entry.title[:30]}...")
+                url_real = entry.link
+                print(f"   > Processando: {entry.title[:30]}...")
                 
-                # --- A MÁGICA ACONTECE AQUI ---
-                # Decodifica a URL do Google para a URL Real
-                try:
-                    resultado_decode = gnewsdecoder(entry.link)
-                    if resultado_decode.get("status"):
-                        url_real = resultado_decode["decoded_url"]
-                        print(f"     🔓 URL Decodificada: {url_real}")
-                    else:
-                        print(f"     ⚠️ Falha ao decodificar: {entry.link}")
-                        continue
-                except Exception as e:
-                    print(f"     ⚠️ Erro no decoder: {e}")
-                    # Tenta usar o link original se o decoder falhar (fallback)
-                    url_real = entry.link
-
-                # Agora baixamos a notícia real
+                # Newspaper entra no link e raspa tudo
                 article = Article(url_real, config=config)
                 article.download()
                 article.parse()
@@ -64,22 +63,25 @@ def buscar_noticias():
                 img = article.top_image
                 texto = article.text
                 
-                # Filtros de Qualidade
-                if img and len(texto) > 250 and "http" in img:
+                # --- FILTROS DE QUALIDADE ---
+                # 1. Tem imagem? 
+                # 2. Texto é longo o suficiente (> 300 chars)?
+                # 3. Ignora se for só video (G1 costuma ter links só de video)
+                if img and len(texto) > 300 and "http" in img:
                     dados = {
                         "h1": h1,
                         "img": img,
                         "p": texto, 
                         "url": url_real,
-                        "source": entry.source.title if 'source' in entry else "Google News"
+                        "source": feed.feed.title if 'title' in feed.feed else "Portal de Notícias"
                     }
                     lista_envio.append(dados)
-                    print(f"     ✅ SUCESSO! Texto com {len(texto)} caracteres.")
+                    print(f"     ✅ SUCESSO! Capturado ({len(texto)} chars).")
                 else:
-                    print(f"     ❌ Ignorada (Sem img ou texto curto: {len(texto)})")
+                    print(f"     ❌ Ignorada (Sem img ou texto muito curto/vídeo).")
                     
             except Exception as e:
-                print(f"     ⚠️ Erro ao ler noticia: {e}")
+                print(f"     ⚠️ Erro ao raspar artigo: {e}")
                 continue
 
     # Envio para Hostinger
@@ -92,7 +94,7 @@ def buscar_noticias():
         except Exception as e:
             print("FATAL: Erro de conexão com Hostinger:", e)
     else:
-        print("💤 Nenhuma notícia válida encontrada nesta rodada.")
+        print("💤 Nada novo ou relevante encontrado nos sites.")
 
 if __name__ == "__main__":
-    buscar_noticias()
+    buscar_noticias_direto()
