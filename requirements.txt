@@ -1,0 +1,4 @@
+requests
+newspaper3k
+feedparser
+lxml_html_clean
