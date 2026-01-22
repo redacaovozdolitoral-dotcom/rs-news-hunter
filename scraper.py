@@ -1,100 +1,117 @@
-import feedparser
 import requests
-import json
-from newspaper import Article, Config
+import newspaper
+from newspaper import Config
 from datetime import datetime
-import time
 import os
 
-# --- LISTA DE SITES ALVO (FEEDS DIRETOS) ---
-# Adicione ou remova sites aqui. A maioria dos sites aceita "/feed" no final.
-DEFAULT_FEEDS = [
-    "https://g1.globo.com/dynamo/sp/vale-do-paraiba-regiao/rss2.xml", # G1 Vale/Litoral
-    "https://www.tamoiosnews.com.br/feed/", # Tamoios News
-    "https://radarlitoral.com.br/feed/",    # Radar Litoral
-    "https://novaimprensa.com/feed/",       # Nova Imprensa
-    "https://jornalilhabella.com.br/feed/"  # Jornal Ilhabela (se existir, se não, removemos)
-]
+# --- CENTRAL DE SITES E CATEGORIAS ---
+# Adicione ou remova sites conforme necessidade.
+SITES_CONFIG = {
+    # REGIONAIS (Litoral Norte)
+    "https://www.litoralnoticias.com.br": "Regional",
+    "https://radarlitoral.com.br": "Regional",
+    "https://www.tamoiosnews.com.br": "Regional",
+    "https://novaimprensa.com": "Regional",
+    "https://www.portalr3.com.br": "Regional",
+    
 
-# Pega feeds extras das variáveis de ambiente se houver
-ENV_FEEDS = os.environ.get("TARGET_FEEDS", "")
-if ENV_FEEDS:
-    FEEDS = ENV_FEEDS.split(",")
-else:
-    FEEDS = DEFAULT_FEEDS
+    # ESPORTES (Geral e Futebol)
+    "https://ge.globo.com/sp/futebol/": "Esporte",
+    "https://www.gazetaesportiva.com": "Esporte",
+    
+    # AUTOMOBILISMO & VELA
+    "https://www.grandepremio.com.br": "Fórmula 1",
+    "https://almanautica.com.br": "Náutica",
+    
+    # SAÚDE
+    "https://www.minhavida.com.br": "Saúde",
 
+    # LOTERIAS (Página de notícias de loteria do UOL)
+    "https://noticias.uol.com.br/loterias/": "Loterias"
+}
+
+# --- CONFIGURAÇÕES DE ENVIO ---
+# Tenta pegar das variáveis do Render, se não usa o padrão
 HOSTINGER_API = os.environ.get("HOSTINGER_API", "https://darkseagreen-nightingale-543295.hostingersite.com/automacao-news/index.php")
 API_TOKEN = os.environ.get("API_TOKEN", "R1c4rd0_Au70m4c40_2026")
 
-# Configuração do "Navegador"
+# --- CONFIGURAÇÃO DO NAVEGADOR ---
 user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 config = Config()
 config.browser_user_agent = user_agent
-config.request_timeout = 20
+config.request_timeout = 15 # Timeout curto para agilidade
+config.fetch_images = True
+config.memoize_articles = False # Sempre verifica tudo de novo (Render reinicia a memória)
 
-def buscar_noticias_direto():
+def buscar_tudo():
     lista_envio = []
-    print(f"--- Iniciando Busca Direta: {datetime.now()} ---")
+    print(f"--- Iniciando Varredura Geral: {datetime.now()} ---")
     
-    for rss_url in FEEDS:
-        print(f"📡 Lendo Feed: {rss_url}")
-        
+    for url, categoria in SITES_CONFIG.items():
+        print(f"🌍 Visitando: {url} [{categoria}]")
         try:
-            feed = feedparser.parse(rss_url)
-            if not feed.entries:
-                print("   ⚠️ Feed vazio ou erro de leitura.")
-                continue
-        except Exception as e:
-            print(f"   ⚠️ Erro ao abrir feed: {e}")
-            continue
-        
-        # Pega as 3 notícias mais recentes de cada site
-        for entry in feed.entries[:3]:
-            try:
-                url_real = entry.link
-                print(f"   > Processando: {entry.title[:30]}...")
+            # Constrói a estrutura do site (varredura da home)
+            paper = newspaper.build(url, config=config)
+            
+            # Limite de segurança: Pega apenas as 2 notícias mais novas de cada site
+            # Isso evita que um site com 50 notícias abafe os outros
+            limitador = 0
+            
+            for article in paper.articles:
+                if limitador >= 2: break 
                 
-                # Newspaper entra no link e raspa tudo
-                article = Article(url_real, config=config)
-                article.download()
-                article.parse()
-                
-                h1 = article.title
-                img = article.top_image
-                texto = article.text
-                
-                # --- FILTROS DE QUALIDADE ---
-                # 1. Tem imagem? 
-                # 2. Texto é longo o suficiente (> 300 chars)?
-                # 3. Ignora se for só video (G1 costuma ter links só de video)
-                if img and len(texto) > 300 and "http" in img:
-                    dados = {
-                        "h1": h1,
-                        "img": img,
-                        "p": texto, 
-                        "url": url_real,
-                        "source": feed.feed.title if 'title' in feed.feed else "Portal de Notícias"
-                    }
-                    lista_envio.append(dados)
-                    print(f"     ✅ SUCESSO! Capturado ({len(texto)} chars).")
-                else:
-                    print(f"     ❌ Ignorada (Sem img ou texto muito curto/vídeo).")
+                try:
+                    article.download()
+                    article.parse()
                     
-            except Exception as e:
-                print(f"     ⚠️ Erro ao raspar artigo: {e}")
-                continue
+                    # --- FILTROS INTELIGENTES ---
+                    
+                    # 1. IMAGEM (Flexível)
+                    img_final = article.top_image
+                    # Se não achou a principal, tenta achar qualquer outra no corpo
+                    if not img_final and article.images:
+                        for i in article.images:
+                            if "http" in i and len(i) > 60: # URL válida
+                                img_final = i
+                                break
+                    
+                    # Se mesmo assim não tiver imagem, pula (TV precisa de imagem)
+                    if not img_final: continue
 
-    # Envio para Hostinger
-    if lista_envio:
-        print(f"🚀 Enviando {len(lista_envio)} notícias para Hostinger...")
-        headers = {'HTTP_X_API_TOKEN': API_TOKEN}
-        try:
-            r = requests.post(HOSTINGER_API, json=lista_envio, headers=headers)
-            print("Resposta do Servidor:", r.text)
+                    # 2. TÍTULO E TEXTO
+                    if not article.title: continue
+                    if len(article.text) < 100: continue # Mínimo 100 caracteres
+
+                    # MONTAGEM DO DADOS
+                    dados = {
+                        "h1": article.title,
+                        "img": img_final,
+                        "p": article.text,
+                        "url": article.url,
+                        "category": categoria,
+                        "source": paper.brand or "Web"
+                    }
+                    
+                    lista_envio.append(dados)
+                    print(f"   ✅ Capturada: {article.title[:40]}...")
+                    limitador += 1
+                    
+                except Exception:
+                    continue # Se falhar uma notícia, tenta a próxima
+                    
         except Exception as e:
-            print("FATAL: Erro de conexão com Hostinger:", e)
+            print(f"   ⚠️ Erro ao acessar site {url}: {e}")
+
+    # ENVIO PARA HOSTINGER
+    if lista_envio:
+        print(f"🚀 Enviando {len(lista_envio)} notícias para a base...")
+        try:
+            r = requests.post(HOSTINGER_API, json=lista_envio, headers={'HTTP_X_API_TOKEN': API_TOKEN})
+            print("Status Servidor:", r.text)
+        except Exception as e:
+            print("Erro fatal de envio:", e)
     else:
-        print("💤 Nada novo ou relevante encontrado nos sites.")
+        print("💤 Nenhuma notícia nova encontrada nesta rodada.")
 
 if __name__ == "__main__":
-    buscar_noticias_direto()
+    buscar_tudo()
