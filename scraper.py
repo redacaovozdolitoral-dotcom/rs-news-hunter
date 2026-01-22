@@ -3,10 +3,11 @@ import newspaper
 from newspaper import Config
 from datetime import datetime
 import os
-import gc # Garbage Collector (para limpar a memória)
+import gc
+import random # Importante para sortear
 
-# --- 1. LISTA DE SITES ---
-SITES_CONFIG = {
+# --- LISTA COMPLETA ---
+ALL_SITES = {
     "https://radarlitoral.com.br": "Regional",
     "https://www.litoralnoticias.com.br": "Regional",
     "https://www.tamoiosnews.com.br": "Regional",
@@ -22,33 +23,37 @@ SITES_CONFIG = {
     "https://noticias.uol.com.br/loterias/": "Loterias"
 }
 
-# --- 2. CONFIGURAÇÃO DE ENVIO ---
+# --- CONFIGURAÇÃO ---
 BASE_URL = "https://darkseagreen-nightingale-543295.hostingersite.com/automacao-news/index.php"
 TOKEN = "R1c4rd0_Au70m4c40_2026"
 TARGET_API = f"{BASE_URL}?token={TOKEN}"
 
-# --- 3. CONFIGURAÇÃO LEVE ---
 user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 config = Config()
 config.browser_user_agent = user_agent
 config.request_timeout = 10
 config.fetch_images = True
-config.memoize_articles = False # Desliga cache para economizar RAM
-config.keep_article_html = False # Não salva HTML bruto
+config.memoize_articles = False
+config.keep_article_html = False
 
-def buscar_tudo_leve():
-    print(f"--- Iniciando Varredura Leve: {datetime.now()} ---")
+def buscar_fatiado():
+    print(f"--- Iniciando Varredura Fatiada: {datetime.now()} ---")
     
-    # Processa um site de cada vez e envia IMEDIATAMENTE para liberar memória
-    for url, categoria in SITES_CONFIG.items():
+    # ESTRATÉGIA ANTI-MEMÓRIA CHEIA:
+    # Escolhe apenas 4 sites aleatórios desta lista gigante para processar AGORA.
+    # Na próxima execução (daqui a 10 min), ele escolherá outros 4.
+    sites_items = list(ALL_SITES.items())
+    sites_da_vez = dict(random.sample(sites_items, 4)) # Pega só 4
+    
+    print(f"🎲 Sorteados para esta rodada: {list(sites_da_vez.keys())}")
+
+    for url, categoria in sites_da_vez.items():
         print(f"🌍 Visitando: {url} [{categoria}]")
         lista_envio = []
         
         try:
-            # OTIMIZAÇÃO: Varre apenas a estrutura inicial, sem aprofundar
             paper = newspaper.build(url, config=config, memoize_articles=False)
             
-            # Pega só as 2 primeiras notícias encontradas
             count = 0
             for article in paper.articles:
                 if count >= 2: break
@@ -57,7 +62,6 @@ def buscar_tudo_leve():
                     article.download()
                     article.parse()
                     
-                    # Filtros Rápidos
                     img = article.top_image
                     if not img and article.images:
                          for i in article.images:
@@ -84,23 +88,20 @@ def buscar_tudo_leve():
                 except:
                     continue
             
-            # ENVIA O LOTE DESTE SITE E LIMPA A LISTA
             if lista_envio:
                 try:
                     requests.post(TARGET_API, json=lista_envio, timeout=10)
-                    print(f"   🚀 Enviadas {len(lista_envio)} notícias de {url}")
+                    print(f"   🚀 Enviadas {len(lista_envio)} notícias")
                 except Exception as e:
                     print(f"   ⚠️ Erro envio: {e}")
             
         except Exception as e:
             print(f"   ⚠️ Erro site: {e}")
         
-        # LIMPEZA DE MEMÓRIA CRÍTICA
-        del paper # Apaga o objeto pesado da memória
-        gc.collect() # Força o Python a limpar a RAM agora
-        print("   🧹 Memória limpa.")
+        del paper
+        gc.collect()
 
-    print("🏁 Ciclo finalizado.")
+    print("🏁 Ciclo finalizado (Memória preservada).")
 
 if __name__ == "__main__":
-    buscar_tudo_leve()
+    buscar_fatiado()
